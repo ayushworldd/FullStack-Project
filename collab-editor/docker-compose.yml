@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:5.0
+    container_name: collab-editor-mongodb
+    restart: always
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=collab-editor
+    networks:
+      - collab-network
+
+  backend:
+    build: ./backend
+    container_name: collab-editor-backend
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/collab-editor
+      - JWT_SECRET=${JWT_SECRET:-please-change-this-secret-key-in-production}
+      - CORS_ORIGIN=http://localhost:5173
+    depends_on:
+      - mongodb
+    networks:
+      - collab-network
+    volumes:
+      - ./backend/logs:/app/logs
+
+  frontend:
+    build: ./frontend
+    container_name: collab-editor-frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_WS_URL=ws://localhost:3001
+    depends_on:
+      - backend
+    networks:
+      - collab-network
+
+volumes:
+  mongo-data:
+
+networks:
+  collab-network:
+    driver: bridge
