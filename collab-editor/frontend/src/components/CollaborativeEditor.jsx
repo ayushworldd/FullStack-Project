@@ -1,11 +1,46 @@
 import { useEffect, useRef, useState } from 'react';
-import { EditorView, basicSetup } from 'codemirror';
+import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { foldGutter, indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldKeymap } from '@codemirror/language';
+import { lintKeymap } from '@codemirror/lint';
 import { javascript } from '@codemirror/lang-javascript';
 import { markdown } from '@codemirror/lang-markdown';
 import { yCollab } from 'y-codemirror.next';
 import * as Y from 'yjs';
 import socketService from '../services/socket';
+
+// Basic setup extensions
+const basicSetup = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  closeBrackets(),
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    ...lintKeymap
+  ])
+];
 
 const CollaborativeEditor = ({ documentId, userColor, username }) => {
   const editorRef = useRef(null);
@@ -27,15 +62,34 @@ const CollaborativeEditor = ({ documentId, userColor, username }) => {
 
     const initializeEditor = async () => {
       try {
+        console.log('[Editor] Initializing editor for document:', documentId);
+        console.log('[Editor] Socket connected:', socketService.isConnected());
+        
+        // Check if socket is connected
+        if (!socketService.isConnected()) {
+          console.log('[Editor] Socket not connected, waiting...');
+          // Wait a bit for socket to connect
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (!socketService.isConnected()) {
+            throw new Error('WebSocket not connected. Please refresh the page.');
+          }
+        }
+        
+        console.log('[Editor] Joining document room...');
         // Join document room and get initial state
         const syncData = await socketService.joinDocument(documentId);
+        console.log('[Editor] Joined document, sync data:', syncData);
         
         if (!mounted) return;
 
         // Apply initial state
         if (syncData.state && syncData.state.length > 0) {
+          console.log('[Editor] Applying initial state');
           const update = new Uint8Array(syncData.state);
           Y.applyUpdate(ydoc, update);
+        } else {
+          console.log('[Editor] No initial state to apply');
         }
 
         // Create CodeMirror extensions

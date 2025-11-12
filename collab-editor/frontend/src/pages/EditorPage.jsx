@@ -19,9 +19,19 @@ const EditorPage = () => {
   const loadDocument = async () => {
     try {
       const response = await documentsAPI.getById(documentId);
-      setDocument(response.data.document);
+      console.log('Document response:', response);
+      
+      // Handle both response formats
+      const doc = response.data?.document || response.document;
+      
+      if (!doc) {
+        console.error('No document in response:', response);
+      }
+      
+      setDocument(doc);
     } catch (error) {
       console.error('Failed to load document:', error);
+      console.error('Error details:', error);
     } finally {
       setLoading(false);
     }

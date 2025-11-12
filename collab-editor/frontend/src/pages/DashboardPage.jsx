@@ -19,7 +19,12 @@ const DashboardPage = () => {
   const loadDocuments = async () => {
     try {
       const response = await documentsAPI.getAll();
-      setDocuments(response.data.documents);
+      console.log('Documents response:', response);
+      
+      // Handle both response formats
+      const docs = response.data?.documents || response.documents || [];
+      
+      setDocuments(docs);
     } catch (error) {
       console.error('Failed to load documents:', error);
     } finally {
@@ -31,9 +36,21 @@ const DashboardPage = () => {
     e.preventDefault();
     try {
       const response = await documentsAPI.create({ title });
-      navigate(`/editor/${response.data.document._id}`);
+      console.log('Create document response:', response);
+      
+      // Handle both response formats
+      const doc = response.data?.document || response.document;
+      
+      if (!doc || !doc._id) {
+        console.error('Invalid document response:', response);
+        alert('Failed to create document. Please try again.');
+        return;
+      }
+      
+      navigate(`/editor/${doc._id}`);
     } catch (error) {
       console.error('Failed to create document:', error);
+      alert('Failed to create document: ' + (error.error || error.message || 'Unknown error'));
     }
   };
 

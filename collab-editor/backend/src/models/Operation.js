@@ -4,8 +4,7 @@ const operationSchema = new mongoose.Schema({
   documentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Document',
-    required: true,
-    index: true
+    required: true
   },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -20,8 +19,7 @@ const operationSchema = new mongoose.Schema({
   // Vector clock or Lamport timestamp for ordering
   clock: {
     type: Number,
-    required: true,
-    index: true
+    required: true
   },
   // Operation sequence number within document
   sequenceNumber: {
@@ -31,8 +29,7 @@ const operationSchema = new mongoose.Schema({
   // Hash for duplicate detection
   operationHash: {
     type: String,
-    required: true,
-    index: true
+    required: true
   },
   // Metadata for debugging and observability
   clientId: {
@@ -41,8 +38,7 @@ const operationSchema = new mongoose.Schema({
   },
   timestamp: {
     type: Date,
-    default: Date.now,
-    index: true
+    default: Date.now
   },
   // Size in bytes for monitoring
   size: {
@@ -63,7 +59,6 @@ operationSchema.index({ documentId: 1, clock: 1 });
 operationSchema.index({ documentId: 1, sequenceNumber: 1 });
 operationSchema.index({ documentId: 1, timestamp: 1 });
 operationSchema.index({ operationHash: 1 }, { unique: true });
-operationSchema.index({ timestamp: 1 }); // For cleanup queries
 
 // TTL index for automatic cleanup (30 days)
 operationSchema.index(

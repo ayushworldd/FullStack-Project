@@ -30,6 +30,14 @@ const shareSchema = Joi.object({
  */
 export const createDocument = async (req, res) => {
   try {
+    // Debug logging
+    logger.info('Create document request received', {
+      userId: req.userId,
+      userIdType: typeof req.userId,
+      user: req.user ? req.user._id : 'no user',
+      body: req.body
+    });
+
     const { error } = createDocumentSchema.validate(req.body);
     
     if (error) {
@@ -41,11 +49,20 @@ export const createDocument = async (req, res) => {
 
     const { title, content = '', language = 'plaintext', isPublic = false, publicRole = null } = req.body;
 
+    // Validate userId exists
+    if (!req.userId) {
+      logger.error('No userId in request');
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
     // Generate unique slug
     const slug = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${uuidv4().slice(0, 8)}`;
 
-    // Create document
-    const document = new Document({
+    // Create document with explicit owner
+    const documentData = {
       title,
       slug,
       content,
@@ -54,18 +71,42 @@ export const createDocument = async (req, res) => {
       isPublic,
       publicRole,
       permissions: []
+    };
+
+    logger.info('Creating document with data', documentData);
+
+    const document = new Document(documentData);
+
+    // Log before save
+    logger.info('Document before save', {
+      owner: document.owner,
+      ownerType: typeof document.owner
     });
 
     await document.save();
 
-    logger.info('Document created', { documentId: document._id, userId: req.userId });
+    // Log after save
+    logger.info('Document created', { 
+      documentId: document._id, 
+      userId: req.userId,
+      owner: document.owner,
+      ownerType: typeof document.owner,
+      title: document.title
+    });
+
+    // Populate owner before sending response
+    await document.populate('owner', 'username displayName avatar color');
 
     res.status(201).json({
       success: true,
       data: { document }
     });
   } catch (error) {
-    logger.error('Failed to create document', { error: error.message });
+    logger.error('Failed to create document', { 
+      error: error.message, 
+      stack: error.stack,
+      userId: req.userId 
+    });
     res.status(500).json({
       success: false,
       error: 'Failed to create document'
@@ -133,26 +174,49 @@ export const getDocument = async (req, res) => {
   try {
     const { id } = req.params;
     
+    // Don't populate yet - check access first with raw IDs
     const document = await Document.findOne({
       $or: [{ _id: id }, { slug: id }],
       isDeleted: false
-    })
-      .populate('owner', 'username displayName avatar')
-      .populate('activeUsers', 'username displayName avatar color');
+    });
 
     if (!document) {
+      logger.warn('Document not found', { documentId: id, userId: req.userId });
       return res.status(404).json({
         success: false,
         error: 'Document not found'
       });
     }
 
+    // Debug logging - check with raw owner ID
+    const ownerIdStr = document.owner ? document.owner.toString() : 'null';
+    const userIdStr = req.userId ? req.userId.toString() : 'null';
+    
+    logger.info('Document access check', {
+      documentId: document._id,
+      documentOwner: ownerIdStr,
+      requestUserId: userIdStr,
+      idsMatch: ownerIdStr === userIdStr,
+      userRole: document.getUserRole(req.userId),
+      hasAccess: document.hasAccess(req.userId, 'viewer')
+    });
+
     if (!document.hasAccess(req.userId, 'viewer')) {
+      logger.warn('Access denied to document', {
+        documentId: document._id,
+        userId: userIdStr,
+        owner: ownerIdStr,
+        idsMatch: ownerIdStr === userIdStr
+      });
       return res.status(403).json({
         success: false,
         error: 'Access denied'
       });
     }
+
+    // Now populate for response
+    await document.populate('owner', 'username displayName avatar color');
+    await document.populate('activeUsers', 'username displayName avatar color');
 
     res.json({
       success: true,
@@ -162,7 +226,7 @@ export const getDocument = async (req, res) => {
       }
     });
   } catch (error) {
-    logger.error('Failed to get document', { error: error.message });
+    logger.error('Failed to get document', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       error: 'Failed to get document'

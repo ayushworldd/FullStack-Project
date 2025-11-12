@@ -13,12 +13,32 @@ import PresenceService from '../services/PresenceService.js';
  */
 class SocketServer {
   constructor(httpServer) {
+    logger.info('Creating Socket.IO server with config', {
+      cors: config.websocket.cors,
+      transports: ['websocket', 'polling']
+    });
+
     this.io = new Server(httpServer, {
       cors: config.websocket.cors,
       pingInterval: config.websocket.pingInterval,
       pingTimeout: config.websocket.pingTimeout,
       maxHttpBufferSize: config.websocket.maxBufferSize,
       transports: ['websocket', 'polling']
+    });
+
+    // Log raw engine connections
+    this.io.engine.on('initial_headers', (headers, request) => {
+      logger.info('WebSocket initial headers', {
+        origin: request.headers.origin,
+        url: request.url
+      });
+    });
+
+    this.io.engine.on('connection', (rawSocket) => {
+      logger.info('Raw engine connection received', {
+        id: rawSocket.id,
+        transport: rawSocket.transport.name
+      });
     });
 
     this.presenceService = new PresenceService();
@@ -32,31 +52,66 @@ class SocketServer {
    * Setup authentication middleware
    */
   setupMiddleware() {
-    this.io.use(async (socket, next) => {
-      try {
-        const token = socket.handshake.auth.token;
-        
-        if (!token) {
-          return next(new Error('Authentication required'));
+    logger.info('Setting up WebSocket authentication middleware');
+    
+    this.io.use((socket, next) => {
+      logger.info('WebSocket middleware called', {
+        socketId: socket.id,
+        hasAuth: !!socket.handshake.auth,
+        authKeys: socket.handshake.auth ? Object.keys(socket.handshake.auth) : []
+      });
+      
+      // Wrap in async IIFE to handle async operations
+      (async () => {
+        try {
+          const token = socket.handshake.auth.token;
+          
+          logger.info('WebSocket auth attempt', { 
+            hasToken: !!token,
+            socketId: socket.id,
+            tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
+          });
+          
+          if (!token) {
+            logger.warn('WebSocket auth failed: no token');
+            return next(new Error('Authentication required'));
+          }
+
+          // Verify JWT
+          const decoded = jwt.verify(token, config.jwt.secret);
+          logger.info('JWT verified', { userId: decoded.userId });
+          
+          const user = await User.findById(decoded.userId);
+
+          if (!user) {
+            logger.warn('WebSocket auth failed: user not found', { userId: decoded.userId });
+            return next(new Error('Invalid user'));
+          }
+          
+          if (!user.isActive) {
+            logger.warn('WebSocket auth failed: user not active', { userId: decoded.userId });
+            return next(new Error('Invalid user'));
+          }
+
+          socket.userId = user._id.toString();
+          socket.user = user;
+          socket.correlationId = uuidv4();
+          
+          logger.info('WebSocket auth successful', { 
+            userId: socket.userId,
+            username: user.username 
+          });
+          
+          next();
+        } catch (error) {
+          logger.error('Socket authentication failed', { 
+            error: error.message,
+            name: error.name,
+            stack: error.stack
+          });
+          next(new Error('Authentication failed: ' + error.message));
         }
-
-        // Verify JWT
-        const decoded = jwt.verify(token, config.jwt.secret);
-        const user = await User.findById(decoded.userId);
-
-        if (!user || !user.isActive) {
-          return next(new Error('Invalid user'));
-        }
-
-        socket.userId = user._id.toString();
-        socket.user = user;
-        socket.correlationId = uuidv4();
-        
-        next();
-      } catch (error) {
-        logger.error('Socket authentication failed', { error: error.message });
-        next(new Error('Authentication failed'));
-      }
+      })();
     });
   }
 
@@ -64,6 +119,15 @@ class SocketServer {
    * Setup event handlers
    */
   setupEventHandlers() {
+    // Log all connection attempts
+    this.io.engine.on('connection_error', (err) => {
+      logger.error('WebSocket connection error', {
+        message: err.message,
+        code: err.code,
+        context: err.context
+      });
+    });
+
     this.io.on('connection', (socket) => {
       const log = createLogger(socket.correlationId);
       

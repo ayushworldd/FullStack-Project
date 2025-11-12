@@ -11,8 +11,12 @@ class SocketService {
 
   connect(token) {
     if (this.socket?.connected) {
+      console.log('[Socket] Already connected');
       return this.socket;
     }
+
+    console.log('[Socket] Connecting to:', WS_URL);
+    console.log('[Socket] With token:', token ? 'present' : 'missing');
 
     this.socket = io(WS_URL, {
       auth: { token },
@@ -24,19 +28,24 @@ class SocketService {
     });
 
     this.socket.on('connect', () => {
-      console.log('WebSocket connected');
+      console.log('[Socket] WebSocket connected, ID:', this.socket.id);
       this.connected = true;
       this.emit('connected');
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
+    this.socket.on('disconnect', (reason) => {
+      console.log('[Socket] WebSocket disconnected, reason:', reason);
       this.connected = false;
       this.emit('disconnected');
     });
 
+    this.socket.on('connect_error', (error) => {
+      console.error('[Socket] Connection error:', error.message);
+      this.emit('error', error);
+    });
+
     this.socket.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      console.error('[Socket] WebSocket error:', error);
       this.emit('error', error);
     });
 

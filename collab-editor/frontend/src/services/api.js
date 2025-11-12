@@ -24,13 +24,17 @@ api.interceptors.request.use(
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // Return the full response data (which includes success, data, etc.)
+    return response.data;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
-    return Promise.reject(error.response?.data || error.message);
+    console.error('API Error:', error.response?.data || error.message);
+    return Promise.reject(error.response?.data || { error: error.message });
   }
 );
 
